@@ -388,9 +388,7 @@ int esp8266_recv_tcp(int fd, void *data, unsigned int amount)
     }
 
     atcmd_set_timeout(&at, ESP8266_RECV_TIMEOUT);
-    while (atcmd_process_oob(&at)) {
-        // Poll for inbound packets
-    }
+    atcmd_process_oob(&at); // Poll for inbound packets
     atcmd_set_timeout(&at, ESP8266_MISC_TIMEOUT);
 
     unsigned int len = ringbuffer_length(&ringbuf);

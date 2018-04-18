@@ -348,26 +348,37 @@ int esp8266_open_tcp(const char *addr, int port, int keepalive)
     return fd;
 }
 
+static int _send_tcp(int fd, const void *data, unsigned int amount)
+{
+    int rc = NSAPI_ERROR_DEVICE_ERROR;
+
+    atcmd_set_timeout(&at, ESP8266_SEND_TIMEOUT);
+
+    bool done = atcmd_send(&at, "AT+CIPSEND=%d,%lu", fd, amount) && atcmd_recv(&at, ">");
+    if (done) {
+        rc = atcmd_write(&at, (char *)data, (int)amount);
+    }
+
+    atcmd_set_timeout(&at, ESP8266_MISC_TIMEOUT);
+
+    return rc;
+}
+
 int esp8266_send_tcp(int fd, const void *data, unsigned int amount)
 {
     if (socket_open[fd] == 0) {
         return NSAPI_ERROR_CONNECTION_LOST;
     }
 
+    int rc = NSAPI_ERROR_DEVICE_ERROR;
+
     for (int i = 0; i < 2; i++) {
-        atcmd_set_timeout(&at, ESP8266_SEND_TIMEOUT);
-        if (atcmd_send(&at, "AT+CIPSEND=%d,%lu", fd, amount) && atcmd_recv(&at, ">")) {
-            int rc = atcmd_write(&at, (char *)data, (int)amount);
-            if (rc >= 0) {
-                while (atcmd_process_oob(&at))
-                    ; // multiple sends in a row require this
-                atcmd_set_timeout(&at, ESP8266_MISC_TIMEOUT);
-                return rc;
-            }
+        rc = _send_tcp(fd, data, amount);
+        if (rc >= 0) {
+            break;
         }
-        atcmd_set_timeout(&at, ESP8266_MISC_TIMEOUT);
     }
-    return NSAPI_ERROR_DEVICE_ERROR;
+    return rc;
 }
 
 int esp8266_recv_tcp(int fd, void *data, unsigned int amount)
@@ -376,24 +387,23 @@ int esp8266_recv_tcp(int fd, void *data, unsigned int amount)
         return NSAPI_ERROR_CONNECTION_LOST;
     }
 
-    unsigned int len = ringbuffer_length(&ringbuf);
-
-    if (len > 0) {
-        len = (len > amount) ? amount : len;
-        int count = len;
-        char *p = data;
-        while (len--) {
-            ringbuffer_get(&ringbuf, p++);
-        }
-        return count;
-    }
-
     atcmd_set_timeout(&at, ESP8266_RECV_TIMEOUT);
-    while (!atcmd_process_oob(&at)) {
+    while (atcmd_process_oob(&at)) {
         // Poll for inbound packets
     }
     atcmd_set_timeout(&at, ESP8266_MISC_TIMEOUT);
-    return 0;
+
+    unsigned int len = ringbuffer_length(&ringbuf);
+    if (len > 0) {
+        if (len > amount) {
+            len = amount;
+        }
+        int count = len;
+        while (count--) {
+            ringbuffer_get(&ringbuf, data++);
+        }
+    }
+    return len;
 }
 
 int esp8266_close(int fd)

@@ -17,8 +17,8 @@ typedef struct atcmd {
     char *buffer;
     unsigned int buffer_size;
     int timeout;
-    int dbg_on;
-    int aborted;
+    bool dbg_on;
+    bool aborted;
     int in_prev;
 
     struct handler {

@@ -47,7 +47,7 @@ static void put_fd(int fd)
 void esp8266_init(atcmd_ops *ops)
 {
     static bool inited = false;
-    static char ringbuf_buf[256]; 
+    static char ringbuf_buf[2048]; 
     static char at_buf[256];
 
     if (!inited) {
@@ -79,11 +79,10 @@ static void packet_handler(void)
 
     for (int i = 0; i < amount; i++) {
         char ch;
-        if (atcmd_read(&at, &ch, 1) == 1) {
-            ringbuffer_put(&ringbuf, ch);
-        } else {
-            return;
+        if (atcmd_read(&at, &ch, 1) != 1) {
+            break;
         }
+        ringbuffer_put(&ringbuf, ch);
     }
 }
 
@@ -357,6 +356,9 @@ static int _send_tcp(int fd, const void *data, unsigned int amount)
     bool done = atcmd_send(&at, "AT+CIPSEND=%d,%lu", fd, amount) && atcmd_recv(&at, ">");
     if (done) {
         rc = atcmd_write(&at, (char *)data, (int)amount);
+        atcmd_set_timeout(&at, ESP8266_RECV_TIMEOUT);
+        atcmd_process_oob(&at); // Poll for inbound packets
+        atcmd_set_timeout(&at, ESP8266_MISC_TIMEOUT);
     }
 
     atcmd_set_timeout(&at, ESP8266_MISC_TIMEOUT);
@@ -387,19 +389,21 @@ int esp8266_recv_tcp(int fd, void *data, unsigned int amount)
         return NSAPI_ERROR_CONNECTION_LOST;
     }
 
-    atcmd_set_timeout(&at, ESP8266_RECV_TIMEOUT);
-    atcmd_process_oob(&at); // Poll for inbound packets
-    atcmd_set_timeout(&at, ESP8266_MISC_TIMEOUT);
-
     unsigned int len = ringbuffer_length(&ringbuf);
-    if (len > 0) {
-        if (len > amount) {
-            len = amount;
-        }
-        int count = len;
-        while (count--) {
-            ringbuffer_get(&ringbuf, data++);
-        }
+    if (!len) {
+        atcmd_set_timeout(&at, ESP8266_RECV_TIMEOUT);
+        atcmd_process_oob(&at); // Poll for inbound packets
+        atcmd_set_timeout(&at, ESP8266_MISC_TIMEOUT);
+        return 0;
+    }
+
+    if (len > amount) {
+        len = amount;
+    }
+    int count = len;
+    char *p = data;
+    while (count--) {
+        ringbuffer_get(&ringbuf, p++);
     }
     return len;
 }

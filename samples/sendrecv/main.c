@@ -2,11 +2,12 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <sys/select.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include "esp8266.h"
 #include "socket_esp8266.h"
 
-#include "config.h"
+#include "../common/config.h"
 
 extern int serial_open_nonblock(const char *devpath);
 
@@ -72,29 +73,48 @@ static void init()
 
     esp8266_init(&ops);
 
+    struct timeval _tv1;
+    gettimeofday(&_tv1, NULL);
+
     int rc = socket_init(&socket_esp8266, SSID, PASS);
     if (rc) {
         printf("socket init failed %d\n", rc);
         exit(-1);
     }
+
+    struct timeval _tv2;
+    gettimeofday(&_tv2, NULL);
+    printf("socket_init comsume %ldms\n",
+           (_tv2.tv_sec - _tv1.tv_sec)*1000 + (_tv2.tv_usec - _tv1.tv_usec)/1000);
 }
 
 static bool connected = false;
 static int sockfd;
 
+
 static int net_process(void)
 {
-    int rc = socket_send(sockfd, "hello", 5);
+    struct timeval _tv1;
+    gettimeofday(&_tv1, NULL);
+    static unsigned long count = 0;
+    char send_buf[16];
+
+    int n = snprintf(send_buf, sizeof(send_buf), "%lu", count);
+    int rc = socket_send(sockfd, send_buf, n);
     if (rc < 0) {
         if (rc == NSAPI_ERROR_CONNECTION_LOST) {
             connected = false;
-            return rc;
         }
-        else {
-            printf("socket send failed\n");
-            exit(-1);
-        }
+        printf("socket send failed\n");
+        return rc;
     }
+
+    count++;
+
+    struct timeval _tv2;
+    gettimeofday(&_tv2, NULL);
+    printf("socket_send comsume %ldms\n",
+           (_tv2.tv_sec - _tv1.tv_sec)*1000 + (_tv2.tv_usec - _tv1.tv_usec)/1000);
 
     char buf[128];
     rc = socket_recv(sockfd, buf, sizeof(buf));
@@ -108,6 +128,11 @@ static int net_process(void)
     }
     printf("received %d bytes: %.*s\n", rc, rc, buf);
 
+    struct timeval _tv3;
+    gettimeofday(&_tv3, NULL);
+    printf("socket recv comsume %ldms\n",
+           (_tv3.tv_sec - _tv2.tv_sec)*1000 + (_tv3.tv_usec - _tv2.tv_usec)/1000);
+
     return 0;
 }
 
@@ -118,12 +143,22 @@ int main(void)
     while (true) {
 
         if (!connected) {
+
+            struct timeval _tv1;
+            gettimeofday(&_tv1, NULL);
+
             sockfd = socket_connect(ADDR, PORT);
             if (sockfd >= 0) {
                 connected = true;
             } else {
                 printf("socket connect failed: %d\n", sockfd);
             }
+
+            struct timeval _tv2;
+            gettimeofday(&_tv2, NULL);
+            printf("socket_connect comsume %ldms\n",
+                   (_tv2.tv_sec - _tv1.tv_sec)*1000 + (_tv2.tv_usec - _tv1.tv_usec)/1000);
+
         } else {
             net_process();
         }

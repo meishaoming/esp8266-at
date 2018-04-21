@@ -19,7 +19,7 @@ static int _getc(atcmd *at)
     return at->ops->getc_timeout(at->timeout);
 }
 
-static void debug_if(int on, const char *format, ...)
+static void debug_if(bool on, const char *format, ...)
 {
     if (on) {
         va_list args;
@@ -38,7 +38,7 @@ bool atcmd_init(atcmd *at, atcmd_ops *ops, char *buf, unsigned int buf_size)
     at->ops = ops;
     at->buffer = buf;
     at->buffer_size = buf_size;
-    at->dbg_on = 1;
+    at->dbg_on = false;
     return true;
 }
 
@@ -263,12 +263,14 @@ int atcmd_read(atcmd *at, char *data, int size)
 bool atcmd_process_oob(atcmd *at)
 {
     unsigned int i = 0;
+    bool rc = false;
 
     while (1) {
         // Receive next character
         int c = _getc(at);
         if (c < 0) {
-            return false;
+            rc = false;
+            goto exit;
         }
 
         // Simplify newlines (borrowed from retarget.cpp)
@@ -300,7 +302,8 @@ bool atcmd_process_oob(atcmd *at)
 
                 debug_if(at->dbg_on, "AT! %s\r\n", handler->prefix);
                 handler->cb();
-                return true;
+                rc = true;
+                goto exit;
             }
         }
 
@@ -311,4 +314,7 @@ bool atcmd_process_oob(atcmd *at)
             i = 0;
         }
     }
+
+exit:
+    return rc;
 }
